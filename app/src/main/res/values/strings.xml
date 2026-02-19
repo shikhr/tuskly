@@ -61,6 +61,9 @@
     <!-- Settings -->
     <string name="settings_dynamic_color">Dynamic Color</string>
     <string name="settings_dynamic_color_desc">Use Material You colors from your wallpaper</string>
+    <string name="settings_goals_section">Goals</string>
+    <string name="settings_reset_time">Day Reset Time</string>
+    <string name="settings_reset_time_desc">When daily goals reset to incomplete</string>
     <string name="settings_about_section">About</string>
     <string name="settings_version">Version</string>
     <string name="settings_version_value">1.0.0</string>

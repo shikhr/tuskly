@@ -5,7 +5,8 @@ import android.util.Log
 import com.example.minimaltodo.data.db.AppDatabase
 import com.example.minimaltodo.data.entity.CompletionLog
 import com.example.minimaltodo.data.entity.TargetType
-import com.example.minimaltodo.util.todayDateString
+import com.example.minimaltodo.data.repository.SettingsRepository
+import com.example.minimaltodo.util.logicalDateString
 
 /**
  * Provides Room DB access for widgets using the same shared
@@ -25,7 +26,8 @@ object WidgetDataHelper {
     suspend fun buildGoalsDataString(context: Context): String {
         val db = getDatabase(context)
         val goals = db.goalDao().getActiveGoals()
-        val logs = db.completionLogDao().getLogsForDate(todayDateString())
+        val today = logicalDateString(SettingsRepository.getResetHour(context))
+        val logs = db.completionLogDao().getLogsForDate(today)
         val logsByGoalId = logs.associateBy { it.goalId }
 
         return goals.joinToString("\n") { goal ->
@@ -66,7 +68,7 @@ object WidgetDataHelper {
             Log.e("WidgetData", "Goal $goalId not found")
             return
         }
-        val today = todayDateString()
+        val today = logicalDateString(SettingsRepository.getResetHour(context))
         val existing = logDao.getLog(goalId, today)
         val currentValue = existing?.value ?: 0f
         val target = goal.targetValue

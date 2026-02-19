@@ -62,6 +62,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.minimaltodo.ui.completed.CompletedScreen
 import com.example.minimaltodo.ui.completed.CompletedViewModel
 import com.example.minimaltodo.ui.deleted.DeletedViewModel
@@ -70,6 +71,7 @@ import com.example.minimaltodo.ui.goals.AddGoalDialog
 import com.example.minimaltodo.ui.goals.DailyGoalsScreen
 import com.example.minimaltodo.ui.goals.GoalsViewModel
 import com.example.minimaltodo.ui.settings.SettingsScreen
+import com.example.minimaltodo.ui.settings.SettingsViewModel
 import com.example.minimaltodo.ui.tasks.AddTaskDialog
 import com.example.minimaltodo.ui.tasks.TasksScreen
 import com.example.minimaltodo.ui.tasks.TasksViewModel
@@ -292,9 +294,14 @@ private fun MinimalTodoContent(
                         RecentlyDeletedScreen(viewModel = viewModel)
                     }
                     AppScreen.SETTINGS -> {
+                        val settingsViewModel: SettingsViewModel = hiltViewModel()
+                        val resetHour by settingsViewModel.resetHour
+                            .collectAsStateWithLifecycle(settingsViewModel.getResetHour())
                         SettingsScreen(
                             isDynamicColor = dynamicColor,
                             onDynamicColorToggle = onDynamicColorToggle,
+                            resetHour = resetHour,
+                            onResetHourChange = settingsViewModel::setResetHour,
                         )
                     }
                 }
