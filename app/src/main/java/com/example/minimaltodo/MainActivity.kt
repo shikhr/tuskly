@@ -6,6 +6,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -13,6 +15,10 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.foundation.pager.PagerSnapDistance
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
@@ -41,14 +47,18 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -100,8 +110,27 @@ private fun MinimalTodoContent(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var currentScreen by rememberSaveable { mutableStateOf(AppScreen.MAIN) }
-    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    val pagerState = rememberPagerState(initialPage = 0) { 2 }
     var showAddDialog by remember { mutableStateOf(false) }
+
+    // Derive selectedTab from pager so it's always in sync
+    val selectedTab by remember { derivedStateOf { pagerState.currentPage } }
+
+    // Catch pager overscroll at page 0 to open drawer
+    val drawerOpenNestedScroll = remember(drawerState, scope) {
+        object : NestedScrollConnection {
+            override fun onPostScroll(
+                consumed: Offset,
+                available: Offset,
+                source: NestedScrollSource,
+            ): Offset {
+                if (available.x > 0f && drawerState.isClosed) {
+                    scope.launch { drawerState.open() }
+                }
+                return Offset.Zero
+            }
+        }
+    }
 
     // Hoist ViewModels so they're accessible from both tabs and dialog
     val goalsViewModel: GoalsViewModel = hiltViewModel()
@@ -126,17 +155,19 @@ private fun MinimalTodoContent(
         AppScreen.SETTINGS -> stringResource(R.string.drawer_settings)
     }
 
+    // Drawer native gestures only for drag-to-close when open;
+    // opening is handled by a custom edge swipe overlay on Goals page.
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = true,
+        gesturesEnabled = drawerState.isOpen,
         drawerContent = {
             AppDrawerContent(
                 currentScreen = currentScreen,
                 selectedTab = selectedTab,
                 onNavigateToMain = { tab ->
                     currentScreen = AppScreen.MAIN
-                    selectedTab = tab
                     scope.launch { drawerState.close() }
+                    scope.launch { pagerState.animateScrollToPage(tab) }
                 },
                 onNavigateToScreen = { screen ->
                     currentScreen = screen
@@ -184,13 +215,13 @@ private fun MinimalTodoContent(
                     NavigationBar {
                         NavigationBarItem(
                             selected = selectedTab == 0,
-                            onClick = { selectedTab = 0 },
+                            onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
                             icon = { Icon(Icons.Default.CheckCircle, contentDescription = null) },
                             label = { Text(stringResource(R.string.nav_goals)) },
                         )
                         NavigationBarItem(
                             selected = selectedTab == 1,
-                            onClick = { selectedTab = 1 },
+                            onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
                             icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
                             label = { Text(stringResource(R.string.nav_tasks)) },
                         )
@@ -213,37 +244,43 @@ private fun MinimalTodoContent(
             },
         ) { innerPadding ->
             AnimatedContent(
-                targetState = currentScreen to selectedTab,
+                targetState = currentScreen,
                 modifier = Modifier.padding(innerPadding),
                 transitionSpec = {
-                    val (oldScreen, oldTab) = initialState
-                    val (newScreen, newTab) = targetState
-                    if (oldScreen == AppScreen.MAIN && newScreen == AppScreen.MAIN) {
-                        // Tab switch: slide based on tab direction
-                        val direction = if (newTab > oldTab) 1 else -1
-                        (slideInHorizontally { direction * it / 3 } + fadeIn())
-                            .togetherWith(slideOutHorizontally { -direction * it / 3 } + fadeOut())
-                    } else {
-                        // Screen switch: slide right for forward, left for back
-                        val forward = newScreen != AppScreen.MAIN
-                        val direction = if (forward) 1 else -1
-                        (slideInHorizontally { direction * it / 3 } + fadeIn())
-                            .togetherWith(slideOutHorizontally { -direction * it / 3 } + fadeOut())
-                    }
+                    val forward = targetState != AppScreen.MAIN
+                    val direction = if (forward) 1 else -1
+                    (slideInHorizontally { direction * it / 3 } + fadeIn())
+                        .togetherWith(slideOutHorizontally { -direction * it / 3 } + fadeOut())
                 },
                 label = "screen_transition",
-            ) { (screen, tab) ->
+            ) { screen ->
                 when (screen) {
                     AppScreen.MAIN -> {
-                        when (tab) {
-                            0 -> DailyGoalsScreen(
-                                viewModel = goalsViewModel,
-                                modifier = Modifier.fillMaxSize(),
-                            )
-                            1 -> TasksScreen(
-                                viewModel = tasksViewModel,
-                                modifier = Modifier.fillMaxSize(),
-                            )
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .nestedScroll(drawerOpenNestedScroll),
+                            overscrollEffect = null,
+                            flingBehavior = PagerDefaults.flingBehavior(
+                                state = pagerState,
+                                pagerSnapDistance = PagerSnapDistance.atMost(1),
+                                snapAnimationSpec = spring(
+                                    stiffness = Spring.StiffnessMedium,
+                                ),
+                                snapPositionalThreshold = 0.35f,
+                            ),
+                        ) { page ->
+                            when (page) {
+                                0 -> DailyGoalsScreen(
+                                    viewModel = goalsViewModel,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                                1 -> TasksScreen(
+                                    viewModel = tasksViewModel,
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
                         }
                     }
                     AppScreen.COMPLETED -> {
